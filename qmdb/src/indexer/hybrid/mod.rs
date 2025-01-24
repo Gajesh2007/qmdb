@@ -10,7 +10,7 @@ pub mod unit;
 use crate::def::{OP_CREATE, OP_DELETE, OP_READ, OP_WRITE, SHARD_COUNT, SHARD_DIV};
 use crate::utils::activebits::ActiveBits;
 use aes_gcm::{
-    aead::{Aead, KeyInit},
+    aead::KeyInit,
     Aes256Gcm,
 };
 use byteorder::{BigEndian, ByteOrder};
@@ -161,9 +161,11 @@ impl HybridIndexer {
     }
 
     pub fn with_dir_and_cipher(dir: String, cipher: Arc<Option<Aes256Gcm>>) -> Self {
-        let mut config = Config::from_dir(&dir);
-        // TODO: Set cipher in config when we add that capability
-        Self::new(config)
+        let config = Config::from_dir(&dir);
+        // Create a new HybridIndexer with the provided cipher
+        let mut hi = Self::new(config);
+        hi.cipher = cipher;
+        hi
     }
 
     pub fn dump_mem_to_file(&self, shard_id: usize) {

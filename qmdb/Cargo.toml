@@ -37,6 +37,7 @@ aes-gcm = "0.10.3"
 aead = "0.5.2"
 generic-array = "1.1.1"
 log = "0.4"
+libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 io-uring = { version = "0.7.2", optional = true }
