@@ -356,9 +356,6 @@ impl AdsCore {
         #[cfg(feature = "tee_cipher")]
         assert!(config.aes_keys.unwrap().len() == 96);
 
-        // Set shard count from config before initializing
-        set_shard_count(config.shard_count);
-
         Self::_init_dir(
             &config.dir,
             config.file_segment_size,
@@ -381,10 +378,8 @@ impl AdsCore {
         fs::create_dir(dir).unwrap();
         let (mut ciphers, _, meta_db_cipher) = get_ciphers(aes_keys);
         let mut meta = MetaDB::with_dir(&meta_dir, meta_db_cipher);
-        let shard_count = get_current_shard_count();
-        let sentry_count = get_current_sentry_count();
         
-        for shard_id in 0..shard_count {
+        for shard_id in 0..SHARD_COUNT {
             let mut tree = Tree::new(
                 shard_id,
                 8192,
@@ -395,7 +390,7 @@ impl AdsCore {
                 ciphers.pop_front().unwrap(),
             );
             let mut bz = [0u8; DEFAULT_ENTRY_SIZE];
-            for sn in 0..sentry_count {
+            for sn in 0..SENTRY_COUNT {
                 let e = sentry_entry(shard_id, sn as u64, &mut bz[..]);
                 tree.append_entry(&e).unwrap();
             }
@@ -403,7 +398,7 @@ impl AdsCore {
             let (entry_file_size, twig_file_size) = tree.get_file_sizes();
             meta.set_entry_file_size(shard_id, entry_file_size);
             meta.set_twig_file_size(shard_id, twig_file_size);
-            meta.set_next_serial_num(shard_id, sentry_count as u64);
+            meta.set_next_serial_num(shard_id, SENTRY_COUNT as u64);
         }
         meta.insert_extra_data(0, "".to_owned());
         meta.commit()

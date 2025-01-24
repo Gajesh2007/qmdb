@@ -8,6 +8,11 @@ const URING_SIZE: u32 = 1024;
 const URING_COUNT: usize = 32;
 const SUB_ID_CHAN_SIZE: usize = 20000;
 
+/// Configuration options for QMDB.
+/// Note: The shard count is intentionally not configurable as it has been
+/// extensively benchmarked and optimized. The default value of 16 shards provides
+/// the best performance in single-node deployments based on benchmarks comparing
+/// 4, 16, and 32 shards.
 pub struct Config {
     pub dir: String,
     pub wrbuf_size: usize,
@@ -22,10 +27,6 @@ pub struct Config {
     pub uring_count: usize,
     pub uring_size: u32,
     pub sub_id_chan_size: usize,
-    pub shard_count: usize,
-    pub compactor_thread_count: usize,
-    pub updater_thread_count: usize,
-    pub numa_affinity: bool,
 }
 
 impl Default for Config {
@@ -44,10 +45,6 @@ impl Default for Config {
             uring_count: URING_COUNT,
             uring_size: URING_SIZE,
             sub_id_chan_size: SUB_ID_CHAN_SIZE,
-            shard_count: 16,
-            compactor_thread_count: 16,
-            updater_thread_count: 16,
-            numa_affinity: false,
         }
     }
 }
@@ -82,10 +79,6 @@ impl Config {
             uring_count,
             uring_size,
             sub_id_chan_size,
-            shard_count: 16,
-            compactor_thread_count: 16,
-            updater_thread_count: 16,
-            numa_affinity: false,
         }
     }
 
