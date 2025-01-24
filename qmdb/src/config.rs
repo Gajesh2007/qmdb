@@ -22,6 +22,7 @@ pub struct Config {
     pub uring_count: usize,
     pub uring_size: u32,
     pub sub_id_chan_size: usize,
+    pub use_direct_io: bool,
 }
 
 impl Default for Config {
@@ -40,6 +41,7 @@ impl Default for Config {
             uring_count: URING_COUNT,
             uring_size: URING_SIZE,
             sub_id_chan_size: SUB_ID_CHAN_SIZE,
+            use_direct_io: false,
         }
     }
 }
@@ -74,6 +76,7 @@ impl Config {
             uring_count,
             uring_size,
             sub_id_chan_size,
+            use_direct_io: false,
         }
     }
 
@@ -103,5 +106,9 @@ impl Config {
 
     pub fn set_with_twig_file(&mut self, with_twig_file: bool) {
         self.with_twig_file = with_twig_file;
+    }
+
+    pub fn set_direct_io(&mut self, use_direct_io: bool) {
+        self.use_direct_io = use_direct_io;
     }
 }

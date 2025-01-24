@@ -9,7 +9,10 @@ pub mod unit;
 
 use crate::def::{OP_CREATE, OP_DELETE, OP_READ, OP_WRITE, SHARD_COUNT, SHARD_DIV};
 use crate::utils::activebits::ActiveBits;
-use aes_gcm::Aes256Gcm;
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm,
+};
 use byteorder::{BigEndian, ByteOrder};
 use def::{
     to_key_pos, MERGER_WAIT, MERGE_DIV, MERGE_RATIO, MERGE_THRES, TEMP_FILE_COUNT, UNIT_COUNT,
@@ -26,11 +29,12 @@ use std::time;
 use tempfile::TempFile;
 use unit::Unit;
 
+use crate::config::Config;
+
 const ZERO: AtomicUsize = AtomicUsize::new(0);
 
-fn new_temp_file(dir: &str, num: usize, part: usize) -> Arc<RwLock<TempFile>> {
-    let fname = format!("{}/{:#010x}-{:#04x}", dir, num, part);
-    Arc::new(RwLock::new(TempFile::new(fname)))
+fn create_temp_file(fname: String, config: &Config) -> Arc<RwLock<TempFile>> {
+    Arc::new(RwLock::new(TempFile::with_options(fname, config.use_direct_io)))
 }
 
 fn split_k80(k80: &[u8]) -> (usize, u64) {
@@ -52,7 +56,8 @@ struct Merger {
 
 impl Merger {
     fn new(hi_arc: Arc<HybridIndexer>, merge_thres: usize) -> Self {
-        let new_file = new_temp_file(&hi_arc.dir, MERGER_START, 0);
+        let fname = format!("{}/{:#010x}-{:#04x}", hi_arc.dir, MERGER_START, 0);
+        let new_file = create_temp_file(fname, &hi_arc.config);
         Self {
             file_num: MERGER_START,
             f_rd: FileReader::new(hi_arc.cipher.clone()),
@@ -89,7 +94,7 @@ impl Merger {
                 let first = idx == 0 && self.file_num == MERGER_START;
                 if idx % UNIT_GROUP_SIZE == 0 && !first {
                     let j = idx / UNIT_GROUP_SIZE;
-                    let new_file = new_temp_file(&self.hi_arc.dir, self.file_num, j);
+                    let new_file = create_temp_file(format!("{}/{:#010x}-{:#04x}", self.hi_arc.dir, self.file_num, j), &self.hi_arc.config);
                     self.f_wr.load_file(new_file);
                 }
 
@@ -110,54 +115,55 @@ pub struct HybridIndexer {
     change_counts: [AtomicUsize; SHARD_COUNT],
     activebits: Vec<ActiveBits>,
     cipher: Arc<Option<Aes256Gcm>>,
+    config: Config,
 }
 
 impl HybridIndexer {
-    pub fn new(n: usize) -> Self {
-        if n != UNIT_COUNT {
-            panic!("HybridIndexer must have {} units", UNIT_COUNT);
+    pub fn new(config: Config) -> HybridIndexer {
+        if Path::new(&config.dir).exists() {
+            std::fs::remove_dir_all(&config.dir).unwrap();
         }
-        Self::_new("default_hybrid_dir".to_string(), Arc::new(None))
-    }
+        std::fs::create_dir(&config.dir).unwrap();
 
-    pub fn with_dir_and_cipher(dir: String, cipher: Arc<Option<Aes256Gcm>>) -> Self {
-        Self::_new(dir, cipher)
-    }
-
-    pub fn with_dir(dir: String) -> Self {
-        Self::_new(dir, Arc::new(None))
-    }
-
-    fn _new(dir: String, cipher: Arc<Option<Aes256Gcm>>) -> Self {
-        if Path::new(&dir).exists() {
-            std::fs::remove_dir_all(&dir).unwrap();
+        let cipher = config.aes_keys.map(|keys| {
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&keys[..32]);
+            Aes256Gcm::new_from_slice(&key).unwrap()
+        });
+        let cipher = Arc::new(cipher);
+        let dir = config.dir.clone();
+        let mut units = Vec::with_capacity(SHARD_COUNT);
+        for i in 0..SHARD_COUNT {
+            let fname = format!("{}/unit_{:02x}.tmp", dir, i);
+            let file = create_temp_file(fname, &config);
+            units.push(Mutex::new(Unit::new(file, cipher.clone())));
         }
-        std::fs::create_dir(&dir).unwrap();
-        let mut files = Vec::with_capacity(TEMP_FILE_COUNT);
-        for i in 0..TEMP_FILE_COUNT {
-            let f = new_temp_file(&dir, 0, i);
-            files.push(f);
-        }
-
-        let mut units = Vec::with_capacity(UNIT_COUNT);
-        for i in 0..UNIT_COUNT {
-            let f = files[i / UNIT_GROUP_SIZE].clone();
-            units.push(Mutex::new(Unit::new(f, cipher.clone())));
-        }
-        let mut v = Vec::new();
+        
+        let mut v = Vec::with_capacity(SHARD_COUNT);
         for _ in 0..SHARD_COUNT {
             v.push(ActiveBits::with_capacity(1000));
         }
 
-        Self {
-            dir,
+        HybridIndexer {
+            dir: config.dir.clone(),
             initializing: AtomicBool::new(true),
             units,
             sizes: [ZERO; SHARD_COUNT],
             change_counts: [ZERO; SHARD_COUNT],
             activebits: v,
             cipher,
+            config,
         }
+    }
+
+    pub fn with_dir(dir: String) -> Self {
+        Self::new(Config::from_dir(&dir))
+    }
+
+    pub fn with_dir_and_cipher(dir: String, cipher: Arc<Option<Aes256Gcm>>) -> Self {
+        let mut config = Config::from_dir(&dir);
+        // TODO: Set cipher in config when we add that capability
+        Self::new(config)
     }
 
     pub fn dump_mem_to_file(&self, shard_id: usize) {

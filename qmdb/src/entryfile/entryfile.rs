@@ -24,8 +24,13 @@ impl EntryFile {
         cipher: Option<Aes256Gcm>,
     ) -> EntryFile {
         let buf_size = buffer_size as i64;
+        let aligned_buf_size = if directio {
+            (buf_size + 4095) & !4095
+        } else {
+            buf_size
+        };
         EntryFile {
-            hp_file: HPFile::new(buf_size, segment_size, dir_name, directio).unwrap(),
+            hp_file: HPFile::new(aligned_buf_size, segment_size, dir_name, directio).unwrap(),
             cipher,
         }
     }
